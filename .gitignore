@@ -1,0 +1,34 @@
+# Python cache and local tooling
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local environment and IDE files
+.venv/
+venv/
+env/
+.env
+.env.*
+.idea/
+.vscode/
+
+# Raw DCS exports (may be large or contain plant data)
+/EVENTS.txt
+
+# Local runtime data
+/data/
+/backup/
+/logs/
+
+# SQLite database files and WAL sidecars
+*.db
+*.db-wal
+*.db-shm
+
+# OS metadata
+Thumbs.db
+Desktop.ini
