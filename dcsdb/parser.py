@@ -67,7 +67,10 @@ class ParseResult:
 
 _EVENT_TIME_RE = re.compile(
     r"^(?P<date>\d{4}/\d{1,2}/\d{1,2}) "
-    r"(?P<time>\d{1,2}:\d{2}:\d{2})(?:\.(?P<fraction>\d{1,6}))?$"
+    r"(?:"
+    r"(?P<time>\d{1,2}:\d{2}:\d{2})(?:\.(?P<fraction>\d{1,6}))?"
+    r"|\(\.(?P<midnight_fraction>\d{1,6})\)"
+    r")$"
 )
 
 
@@ -95,11 +98,15 @@ def parse_event_time(
     if not match:
         raise ValueError(f"Invalid datetime: {value!r}")
 
-    fraction = match.group("fraction") or "0"
+    # DCS emits a compact zero-point form at midnight, for example
+    # ``2026/8/9 (.813)``. It means 00:00:00.813; preserve the original text
+    # in event_time_text while converting this value for event_time_ms.
+    clock_time = match.group("time") or "00:00:00"
+    fraction = match.group("fraction") or match.group("midnight_fraction") or "0"
     fraction = (fraction + "000000")[:6]
     try:
         parsed = datetime.strptime(
-            f"{match.group('date')} {match.group('time')}.{fraction}",
+            f"{match.group('date')} {clock_time}.{fraction}",
             "%Y/%m/%d %H:%M:%S.%f",
         )
     except ValueError as exc:

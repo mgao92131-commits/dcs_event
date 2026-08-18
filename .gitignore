@@ -18,6 +18,7 @@ env/
 
 # Raw DCS exports (may be large or contain plant data)
 /EVENTS.txt
+/E2.txt
 
 # Local runtime data
 /data/

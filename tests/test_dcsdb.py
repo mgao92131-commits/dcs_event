@@ -93,6 +93,20 @@ class DCSDatabaseTests(unittest.TestCase):
                 self.assertEqual(len(results), 1)
                 self.assertIsNotNone(results[0].record)
 
+    def test_parser_accepts_dcs_midnight_compact_time(self) -> None:
+        compact = parse_event_time("2026/8/9 (.813)")
+        expanded = parse_event_time("2026/8/9 00:00:00.813")
+        self.assertEqual(compact, expanded)
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "EVENTS.txt"
+            write_events(path, [event_line(1, "2026/8/9 (.813)")])
+            result = list(DCSLogParser().parse(path))[0]
+            self.assertIsNotNone(result.record)
+            assert result.record is not None
+            self.assertEqual(result.record.event_time_text, "2026/8/9 (.813)")
+            self.assertEqual(result.record.event_time_ms, expanded)
+
     def test_hash_uses_raw_event_fields_but_not_source_number(self) -> None:
         common = dict(
             event_time_ms=parse_event_time("2026/8/13 14:24:53.001"),
