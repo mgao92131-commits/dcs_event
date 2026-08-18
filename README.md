@@ -11,6 +11,8 @@ python dcsdb.py query --parameter PID1/MODE.TARGET --from "2026-08-01" --to "202
 python dcsdb.py status
 python dcsdb.py check
 python dcsdb.py backup
+python dcsdb.py analysis list
+python dcsdb.py analysis run setpoint_changes --date "2026-08-18"
 ```
 
 默认路径为：
@@ -34,6 +36,23 @@ DCS 在零点附近可能导出紧凑时间，例如 `2026/8/9 (.813)`；解析�
 - `dcsdb/repository.py`：面向后续分析模块的查询接口
 - `dcsdb/db.py`：SQLite PRAGMA、状态、检查和备份
 - `dcsdb.py`：命令行入口
+
+## 只读分析层
+
+分析组件不使用可写的 `EventRepository`，而是通过 `ReadOnlyDatabase` 访问正式库：
+
+- SQLite URI `mode=ro`
+- `PRAGMA query_only = ON`
+- SQLite authorizer 拒绝 INSERT、UPDATE、DELETE、DDL、ATTACH、REINDEX、VACUUM 等操作
+- `execute()` 用于小结果集，`stream()` 用于大结果集
+
+当前已注册组件：
+
+```text
+setpoint_changes    Setpoint Changes
+```
+
+组件自己编写 SQL 和业务解析逻辑，分析框架只负责注册、调度和提供只读上下文。`setpoint_changes` 查询 `event_type=改变` 且参数以 `.CV` 结尾的事件，排除 `PICA-117024`、`PICA-217024`，并从描述中解析 `旧值`、`新值`。原始事件表和导入流程不包含分析逻辑。
 
 测试：
 

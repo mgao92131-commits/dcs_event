@@ -4,9 +4,15 @@ from __future__ import annotations
 
 import argparse
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
+from .analysis import (
+    AnalysisEngine,
+    AnalysisRequest,
+    ReadOnlyDatabase,
+    create_default_registry,
+)
 from .db import (
     DEFAULT_BACKUP_DIR,
     DEFAULT_DB_PATH,
@@ -90,6 +96,43 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_BACKUP_DIR,
         help=f"Backup directory (default: {DEFAULT_BACKUP_DIR})",
     )
+
+    analysis_parser = subparsers.add_parser("analysis", help="Run read-only analysis")
+    _add_db_override(analysis_parser)
+    analysis_subparsers = analysis_parser.add_subparsers(
+        dest="analysis_command",
+        required=True,
+    )
+    analysis_list_parser = analysis_subparsers.add_parser(
+        "list", help="List registered analysis components"
+    )
+    _add_db_override(analysis_list_parser)
+
+    analysis_run_parser = analysis_subparsers.add_parser(
+        "run", help="Run one analysis component"
+    )
+    _add_db_override(analysis_run_parser)
+    analysis_run_parser.add_argument("component_id")
+    analysis_run_parser.add_argument(
+        "--date",
+        help="Local plant date, for example 2026-08-18",
+    )
+    analysis_run_parser.add_argument(
+        "--from",
+        dest="from_time",
+        help="Inclusive start timestamp",
+    )
+    analysis_run_parser.add_argument(
+        "--to",
+        dest="to_time",
+        help="Exclusive end timestamp",
+    )
+    analysis_run_parser.add_argument(
+        "--limit",
+        type=int,
+        default=100,
+        help="Maximum rows to print; 0 means no limit (default: 100)",
+    )
     return parser
 
 
@@ -135,6 +178,8 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "backup":
             output = args.output or _next_backup_path(args.dir)
             print(f"Backup: {backup_database(args.db, output)}")
+        elif args.command == "analysis":
+            _run_analysis(args)
         return 0
     except Exception as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
@@ -156,6 +201,76 @@ def _parse_query_time(value: str | None) -> int | None:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=DEFAULT_TIMEZONE)
     return int(parsed.timestamp() * 1000)
+
+
+def _build_analysis_request(args: argparse.Namespace) -> AnalysisRequest:
+    if args.date is not None and (args.from_time is not None or args.to_time is not None):
+        raise ValueError("Use --date or --from/--to, not both")
+    if args.to_time is not None and args.from_time is None:
+        raise ValueError("--to requires --from")
+
+    if args.date is not None:
+        date_value = datetime.strptime(args.date, "%Y-%m-%d").date()
+        start = datetime.combine(
+            date_value,
+            datetime.min.time(),
+            tzinfo=DEFAULT_TIMEZONE,
+        )
+        end = start + timedelta(days=1)
+        return AnalysisRequest(
+            start_time_ms=int(start.timestamp() * 1000),
+            end_time_ms=int(end.timestamp() * 1000),
+        )
+
+    return AnalysisRequest(
+        start_time_ms=_parse_query_time(args.from_time),
+        end_time_ms=_parse_query_time(args.to_time),
+    )
+
+
+def _run_analysis(args: argparse.Namespace) -> None:
+    registry = create_default_registry()
+    if args.analysis_command == "list":
+        for component in registry.list():
+            print(f"{component.id}\t{component.name}")
+        return
+
+    if args.limit < 0:
+        raise ValueError("--limit must be non-negative")
+    request = _build_analysis_request(args)
+    engine = AnalysisEngine(ReadOnlyDatabase(args.db), registry)
+    results = iter(engine.run(args.component_id, request))
+    printed = 0
+    print(
+        "event_id\tevent_time_text\tmodule\tmodule_description\tparameter\t"
+        "old_value\tnew_value\tdescription1\tdescription2"
+    )
+    try:
+        for result in results:
+            if args.limit and printed >= args.limit:
+                break
+            print(
+                "\t".join(
+                    _display_value(getattr(result, field))
+                    for field in (
+                        "event_id",
+                        "event_time_text",
+                        "module",
+                        "module_description",
+                        "parameter",
+                        "old_value",
+                        "new_value",
+                        "description1",
+                        "description2",
+                    )
+                )
+            )
+            printed += 1
+    finally:
+        close = getattr(results, "close", None)
+        if close is not None:
+            close()
+    print(f"returned={printed}")
 
 
 def _next_backup_path(directory: Path) -> Path:
